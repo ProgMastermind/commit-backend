@@ -42,18 +42,28 @@ app.use('/api/goals', goalRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
-// app.use('/api', welcomeRoutes);
+
+// Health check route
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', message: 'Server is running' });
+});
 
 // Global error handler
 app.use((err, req, res, next) => {
+    console.error('Global error:', err);
+    
     if (err.name === 'CORSError') {
         res.status(403).json({ message: 'CORS error: ' + err.message });
+    } else if (err.name === 'ValidationError') {
+        res.status(400).json({ message: err.message });
+    } else if (err.name === 'UnauthorizedError') {
+        res.status(401).json({ message: 'Unauthorized: ' + err.message });
     } else {
-        next(err);
+        res.status(500).json({ message: 'Internal server error', error: err.message });
     }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });

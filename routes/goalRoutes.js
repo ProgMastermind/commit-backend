@@ -1,12 +1,27 @@
 const express = require('express');
 const router = express.Router();
-const { createGoal, getGoals, markGoalComplete } = require('../controllers/goalController');
-const validateGoal = require('../middleware/validateGoal');
-const { authenticateToken } = require('../middleware/auth.middleware'); // Assuming you have auth middleware
+const goalController = require('../controllers/goalController');
+const { authenticateToken } = require('../middleware/auth.middleware');
 
-// POST /api/goals/create
-router.post('/create', authenticateToken, validateGoal, createGoal);
-router.get('/user-goals', authenticateToken, getGoals);
-router.put('/:goalId/complete', authenticateToken, markGoalComplete);
+// Apply auth middleware to all routes
+router.use(authenticateToken);
+
+// Create a new goal
+router.post('/', goalController.createGoal);
+
+// Get user goals
+router.get('/user-goals', goalController.getGoals);
+
+// Get group goals
+router.get('/group/:groupId', goalController.getGroupGoals);
+
+// Mark goal as complete
+router.put('/:goalId/complete', goalController.markGoalComplete);
+
+// Update goal progress
+router.put('/:goalId/progress', goalController.updateGoalProgress);
+
+// Delete a goal
+router.delete('/:goalId', goalController.deleteGoal);
 
 module.exports = router;
