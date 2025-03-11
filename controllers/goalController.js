@@ -1,6 +1,7 @@
 const Goal = require('../models/Goal');
 const User = require('../models/user.model');
 const Group = require('../models/Group'); 
+const { checkAndAwardAchievements } = require('./achievementController');
 
 const createGoal = async (req, res) => {
   try {
@@ -197,6 +198,7 @@ const markGoalComplete = async (req, res) => {
     try {
         const { goalId } = req.params;
         const userId = req.userId;
+        console.log(`Marking goal ${goalId} as complete for user ${userId}`);
 
         // Find the goal
         const goal = await Goal.findById(goalId);
@@ -243,8 +245,44 @@ const markGoalComplete = async (req, res) => {
                     throw new Error('User not found');
                 }
 
-                // Add tokens to user's balance
-                user.tokens = (user.tokens || 0) + goal.tokenReward;
+                // Calculate deadline-based bonus rewards
+                let bonusXP = 0;
+                let bonusTokens = 0;
+                
+                if (goal.deadline) {
+                    const now = new Date();
+                    const deadline = new Date(goal.deadline);
+                    
+                    // If completed before deadline
+                    if (now < deadline) {
+                        const daysEarly = Math.ceil((deadline - now) / (1000 * 60 * 60 * 24));
+                        
+                        // Bonus structure: 
+                        // - Completed 1-2 days early: 10% bonus
+                        // - Completed 3-7 days early: 25% bonus
+                        // - Completed >7 days early: 50% bonus
+                        if (daysEarly > 7) {
+                            bonusXP = Math.round((goal.xpReward || 0) * 0.5);
+                            bonusTokens = Math.round((goal.tokenReward || 0) * 0.5);
+                        } else if (daysEarly >= 3) {
+                            bonusXP = Math.round((goal.xpReward || 0) * 0.25);
+                            bonusTokens = Math.round((goal.tokenReward || 0) * 0.25);
+                        } else {
+                            bonusXP = Math.round((goal.xpReward || 0) * 0.1);
+                            bonusTokens = Math.round((goal.tokenReward || 0) * 0.1);
+                        }
+                        
+                        console.log(`Goal completed ${daysEarly} days early. Bonus: ${bonusXP} XP, ${bonusTokens} tokens`);
+                    }
+                }
+
+                // Set default rewards if not present
+                const baseXP = goal.xpReward || 10;
+                const baseTokens = goal.tokenReward || 5;
+
+                // Add tokens to user's balance (including bonus)
+                const totalTokens = baseTokens + bonusTokens;
+                user.tokens = (user.tokens || 0) + totalTokens;
                 
                 // Initialize stats if not exists
                 if (!user.stats) {
@@ -254,12 +292,15 @@ const markGoalComplete = async (req, res) => {
                 // Update user stats
                 user.stats.goalsCompleted = (user.stats.goalsCompleted || 0) + 1;
                 
+                // Calculate total XP reward (including bonus)
+                const totalXP = baseXP + bonusXP;
+                
                 // Check if methods exist before calling them
                 if (typeof user.addXP === 'function') {
-                    await user.addXP(goal.xpReward);
+                    await user.addXP(totalXP);
                 } else {
                     // Fallback if method doesn't exist
-                    user.xp = (user.xp || 0) + goal.xpReward;
+                    user.totalXP = (user.totalXP || 0) + totalXP;
                 }
                 
                 if (typeof user.updateStreak === 'function') {
@@ -272,23 +313,40 @@ const markGoalComplete = async (req, res) => {
                 
                 await user.save({ session });
 
-                // If it's a group goal, update group stats
-                if (goal.isGroupGoal && goal.groupId) {
-                    const group = await Group.findById(goal.groupId);
-                    if (group) {
-                        group.completedGoals += 1;
-                        group.activeGoals -= 1;
-                        await group.save({ session });
-                    }
-                }
-
                 await session.commitTransaction();
                 session.endSession();
 
+                // Check for achievements after goal completion
+                let achievementResult = null;
+                try {
+                    console.log('Checking for achievements after goal completion');
+                    const { checkAndAwardAchievements } = require('./achievementController');
+                    achievementResult = await checkAndAwardAchievements(userId);
+                    console.log('Achievement check result:', achievementResult);
+                } catch (achievementError) {
+                    console.error('Error checking achievements:', achievementError);
+                }
+                
+                // Prepare response with achievement data
+                const responseData = {
+                    goal,
+                    rewards: {
+                        xp: baseXP,
+                        bonusXp: bonusXP,
+                        tokens: baseTokens,
+                        bonusTokens: bonusTokens
+                    }
+                };
+                
+                // Add achievements data if available
+                if (achievementResult) {
+                    responseData.achievements = achievementResult;
+                }
+                
                 res.status(200).json({
                     success: true,
                     message: "Goal marked as complete",
-                    data: goal
+                    data: responseData
                 });
             } catch (error) {
                 await session.abortTransaction();

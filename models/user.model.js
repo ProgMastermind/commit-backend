@@ -138,6 +138,25 @@ const userSchema = new mongoose.Schema({
             default: 'dark'
         }
     },
+    achievements: [{
+        achievementId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Achievement'
+        },
+        progress: {
+            type: Number,
+            default: 0
+        },
+        unlocked: {
+            type: Boolean,
+            default: false
+        },
+        unlockedAt: Date
+    }],
+    totalXP: {
+        type: Number,
+        default: 0
+    },
     resetPasswordToken: String,
     resetPasswordExpires: Date
 });
